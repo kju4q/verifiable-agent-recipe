@@ -1,0 +1,183 @@
+# Mythos / Capybara Cyber-Risk Simulation — Pre-built Recipe
+# FICTIONAL / EDUCATIONAL USE ONLY
+# Based on publicly available summaries of the March 2025 Mythos strategy leak
+
+metadata:
+  name: mythos-capybara-verifiable-agent
+  version: 1.0.0
+  description: >
+    Multi-agent recipe that would have caught the Mythos/Capybara security
+    vulnerabilities before the March 2025 leak became public.
+    EDUCATIONAL SIMULATION ONLY.
+  source_repo: mythos-capybara-sim
+  generated_at: "2026-03-31T00:00:00Z"
+  model: claude-sonnet-4-6
+  computer_use_enabled: true
+
+safety:
+  sandbox_mode: true
+  guardrails:
+    - no_destructive_writes
+    - no_external_api_calls_in_sandbox
+    - human_approval_required_for_mutations
+    - block_hardcoded_secrets
+    - require_screenshot_audit_trail
+    - minimum_confidence_threshold_0.85
+  plan_mode: true
+  accept_edits: false
+
+agents:
+  - id: secret_scanner
+    role: Secret & Credentials Scanner
+    model: claude-sonnet-4-6
+    tools: [read_file, grep, glob]
+    responsibilities:
+      - Scan all files for hard-coded API keys, tokens, passwords
+      - Check CI/CD configs for exposed credentials
+      - Flag any environment variable misuse
+    inputs: [source_repo_path]
+    outputs: [secret_scan_report, credential_risk_map]
+
+  - id: agent_architecture_auditor
+    role: Agent Architecture Auditor
+    model: claude-sonnet-4-6
+    tools: [read_file, glob]
+    responsibilities:
+      - Detect single-agent vs multi-agent patterns
+      - Flag missing human-in-the-loop gates
+      - Identify auto-approve / auto-execute patterns
+      - Check for verifier agent presence
+    inputs: [source_repo_path, codebase_summary]
+    outputs: [architecture_audit, gate_gap_report]
+
+  - id: computer_use_auditor
+    role: Computer Use Provenance Auditor
+    model: claude-sonnet-4-6
+    computer_use: true
+    tools: [screenshot, read_file, grep]
+    responsibilities:
+      - Verify Computer Use sessions have screenshot audit trails
+      - Confirm all UI interactions are logged and hashed
+      - Validate no unlogged browser sessions exist
+    inputs: [source_repo_path]
+    outputs: [cu_audit_report, screenshot_hash_manifest]
+
+  - id: risk_verifier
+    role: Multi-Sample Risk Verifier
+    model: claude-sonnet-4-6
+    tools: [read_file, bash]
+    responsibilities:
+      - Run self-consistency checks on risk scores (3 samples minimum)
+      - Flag any risk decision below 0.85 confidence
+      - Verify provenance chain for all findings
+    inputs: [secret_scan_report, architecture_audit, cu_audit_report]
+    outputs: [verification_report, confidence_scores, provenance_chain]
+    safety:
+      require_sandbox: true
+      min_samples: 3
+      confidence_threshold: 0.85
+
+  - id: remediation_planner
+    role: Remediation Planner
+    model: claude-sonnet-4-6
+    tools: [write_file, read_file]
+    responsibilities:
+      - Generate prioritized remediation plan
+      - Write fix templates for each finding
+      - Create human-AI collaboration card
+    inputs: [verification_report, gate_gap_report]
+    outputs: [remediation_plan, fix_templates, collab_card]
+    safety:
+      require_human_approval: true
+
+workflow:
+  - step: 1
+    agent: secret_scanner
+    action: scan_for_hardcoded_secrets
+    outputs_to: [risk_verifier]
+    expected_findings:
+      - MYTH-001  # Hard-coded OPENAI_KEY in ci/deploy.yml
+
+  - step: 2
+    agent: agent_architecture_auditor
+    action: audit_agent_patterns
+    outputs_to: [risk_verifier]
+    expected_findings:
+      - MYTH-002  # auto_approve=True in agent_runner.py
+      - MYTH-003  # Missing confidence thresholds in risk_scorer.py
+      - MYTH-005  # No sandbox_mode flag
+
+  - step: 3
+    agent: computer_use_auditor
+    action: verify_cu_provenance
+    outputs_to: [risk_verifier]
+    optional: false
+    expected_findings:
+      - MYTH-004  # No screenshot audit trail
+
+  - step: 4
+    agent: risk_verifier
+    action: multi_sample_verification
+    outputs_to: [remediation_planner]
+    requires_approval: false
+    self_consistency:
+      samples: 3
+      threshold: 0.85
+
+  - step: 5
+    agent: remediation_planner
+    action: generate_remediation_plan
+    outputs_to: null
+    requires_approval: true  # Human must sign off
+
+verification:
+  self_consistency:
+    enabled: true
+    method: multi_sample
+    samples: 3
+    threshold: 0.85
+    description: >
+      Each risk finding is scored 3 times. If scores diverge > 15%,
+      the finding is escalated to human review before any action.
+
+  provenance:
+    enabled: true
+    track_inputs: true
+    track_model_version: true
+    track_timestamps: true
+    hash_outputs: true
+    screenshot_audit: true
+    description: >
+      All agent outputs (including Computer Use screenshots) are SHA-256
+      hashed and linked to their inputs, forming a tamper-evident chain.
+
+  human_review_gates:
+    - after_risk_verifier
+    - before_remediation_planner
+    - before_any_file_write
+
+findings_simulated:
+  - id: MYTH-001
+    severity: CRITICAL
+    title: Hard-coded API keys in CI/CD pipeline
+    would_be_caught_at: step_1
+
+  - id: MYTH-002
+    severity: CRITICAL
+    title: No human-in-the-loop gates on autonomous agent
+    would_be_caught_at: step_2
+
+  - id: MYTH-003
+    severity: HIGH
+    title: Missing self-consistency verification on risk scores
+    would_be_caught_at: step_2
+
+  - id: MYTH-004
+    severity: HIGH
+    title: Computer Use agent without screenshot audit trail
+    would_be_caught_at: step_3
+
+  - id: MYTH-005
+    severity: MEDIUM
+    title: No sandbox mode — agents run against production
+    would_be_caught_at: step_2

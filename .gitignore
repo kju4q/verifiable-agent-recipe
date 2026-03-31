@@ -1,0 +1,7 @@
+node_modules/
+agent-output/
+output/
+.env
+.env.local
+*.log
+.DS_Store

@@ -1,0 +1,49 @@
+{
+  "name": "create-verifiable-agent",
+  "version": "1.0.0",
+  "description": "One-command CLI to turn any codebase into a verifiable multi-agent recipe using Claude Sonnet 4.6 + Computer Use API",
+  "bin": {
+    "create-verifiable-agent": "./bin/create-verifiable-agent.js"
+  },
+  "main": "./src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node bin/create-verifiable-agent.js",
+    "demo": "node bin/create-verifiable-agent.js --demo mythos",
+    "test": "node test/run-tests.js"
+  },
+  "keywords": [
+    "claude",
+    "ai-agent",
+    "verifiable",
+    "computer-use",
+    "multi-agent",
+    "recipe",
+    "anthropic"
+  ],
+  "author": "kju4q",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.36.0",
+    "chalk": "^4.1.2",
+    "commander": "^11.1.0",
+    "glob": "^10.3.10",
+    "inquirer": "^8.2.6",
+    "js-yaml": "^4.1.0",
+    "ora": "^5.4.1",
+    "simple-git": "^3.22.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kju4q/verifiable-agent-recipe.git"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "templates/",
+    "demo/"
+  ]
+}
