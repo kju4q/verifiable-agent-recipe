@@ -29,6 +29,13 @@ async function runVerification(context, recipeYaml, { model, apiKey, sandbox } =
   results.push(safetyCheck);
   if (!safetyCheck.passed) allPassed = false;
 
+  // ── 5. Leak-claim risk analysis (if leak documents present) ─────────────────
+  if (context.isDemo || (context.leakDocs && context.leakDocs.length > 0)) {
+    const leakCheck = leakClaimRiskAnalysis(context, recipe);
+    results.push(leakCheck);
+    if (!leakCheck.passed) allPassed = false;
+  }
+
   // Build report
   const report = buildReport(context, recipe, results, allPassed);
 
@@ -162,7 +169,108 @@ function safetyValidation(recipe) {
   };
 }
 
+/**
+ * Leak-claim risk analysis
+ * Cross-references specific Mythos/Capybara capability claims with the
+ * recipe's safety configuration. A model "currently far ahead of any other
+ * AI model in cyber capabilities" demands stronger controls than a standard LLM.
+ */
+function leakClaimRiskAnalysis(context, recipe) {
+  const issues = [];
+  const findings = context.findings?.critical || [];
+  const cyberWarnings = context.cyberRiskWarnings || [];
+  const safety = recipe.safety || {};
+
+  // Check 1: Cyber-capable model requires computer_use audit trail
+  const hasCuAgent = (recipe.agents || []).some(a => a.computer_use);
+  const cuAgent = (recipe.agents || []).find(a => a.computer_use);
+  if (hasCuAgent && !(cuAgent?.tools || []).includes('screenshot')) {
+    issues.push({
+      finding_id: 'MYTH-004',
+      severity: 'HIGH',
+      claim: '"Currently far ahead of any other AI model in cyber capabilities"',
+      risk: 'A Computer Use agent at this capability level with no screenshot audit trail is a critical liability',
+      required: 'Computer Use agent must have screenshot tool and provenance logging',
+    });
+  }
+
+  // Check 2: Cyber-capable model requires sandbox by default
+  if (!safety.sandbox_mode) {
+    issues.push({
+      finding_id: 'MYTH-005',
+      severity: 'CRITICAL',
+      claim: '"can exploit vulnerabilities faster than defenders can patch them"',
+      risk: 'Production access with no sandbox mode is indefensible at Capybara capability level',
+      required: 'sandbox_mode must be true by default; explicit opt-out required',
+    });
+  }
+
+  // Check 3: Executor must require human approval when model is cyber-capable
+  const executorAgent = (recipe.agents || []).find(a => a.id === 'executor');
+  if (executorAgent && !executorAgent.safety?.require_approval) {
+    issues.push({
+      finding_id: 'MYTH-002',
+      severity: 'CRITICAL',
+      claim: '"presages an upcoming wave of models that can exploit vulnerabilities in ways that far outpace the efforts of defenders"',
+      risk: 'auto_approve pattern on a cyber-capable model collapses the entire human-in-the-loop safety model',
+      required: 'executor.safety.require_approval must be true',
+    });
+  }
+
+  // Check 4: Verifier confidence threshold must be high for cyber-capable model
+  const verificationConfig = recipe.verification?.self_consistency || {};
+  const threshold = verificationConfig.threshold || 0;
+  if (threshold < 0.85) {
+    issues.push({
+      finding_id: 'MYTH-003',
+      severity: 'HIGH',
+      claim: '"dramatically higher scores on tests of software coding, academic reasoning, and cybersecurity"',
+      risk: 'Higher capability means higher-confidence wrong answers are more dangerous. Threshold < 0.85 is insufficient.',
+      required: 'verification.self_consistency.threshold >= 0.85',
+    });
+  }
+
+  // Check 5: CMS/secret leak pattern
+  const hasSecretScanner = (recipe.agents || []).some(a =>
+    a.id === 'secret_scanner' ||
+    (a.responsibilities || []).some(r => r.toLowerCase().includes('secret') || r.toLowerCase().includes('credential'))
+  );
+  if (!hasSecretScanner) {
+    issues.push({
+      finding_id: 'MYTH-001',
+      severity: 'HIGH',
+      claim: '"A CMS misconfiguration at Anthropic left approximately 3,000 unpublished assets in a publicly accessible data store"',
+      risk: 'No secret/credential scanner agent in the recipe. Hard-coded keys are the #1 AI infrastructure failure mode.',
+      required: 'Add a dedicated secret_scanner agent that checks all config files, CI/CD, and env vars',
+    });
+  }
+
+  const claimsChecked = [
+    '"step change" in AI capability',
+    '"the most capable we\'ve built to date"',
+    '"dramatically higher scores on tests of software coding, academic reasoning, and cybersecurity"',
+    '"Currently far ahead of any other AI model in cyber capabilities"',
+    '"presages an upcoming wave of models that can exploit vulnerabilities in ways that far outpace the efforts of defenders"',
+  ];
+
+  return {
+    name: 'leak_claim_risk_analysis',
+    passed: issues.length === 0,
+    description: 'Cross-references Mythos/Capybara capability claims with recipe safety configuration',
+    claims_checked: claimsChecked,
+    issues_found: issues.length,
+    issues,
+    cyber_warnings_from_leak: cyberWarnings.slice(0, 3),
+    details: issues.length === 0
+      ? `Recipe safety configuration is appropriate for a model at Capybara's capability level. All ${claimsChecked.length} high-capability claims cross-checked.`
+      : `${issues.length} safety gap(s) identified relative to Capybara's claimed capabilities:\n` +
+        issues.map(i => `  [${i.finding_id}] ${i.risk}`).join('\n'),
+  };
+}
+
 function buildReport(context, recipe, results, allPassed) {
+  const leakCheck = results.find(r => r.name === 'leak_claim_risk_analysis');
+
   const report = {
     verification_report: {
       generated_at: new Date().toISOString(),
@@ -172,13 +280,38 @@ function buildReport(context, recipe, results, allPassed) {
       checks_passed: results.filter(r => r.passed).length,
       checks_failed: results.filter(r => !r.passed).length,
     },
+
+    ...(leakCheck ? {
+      mythos_capybara_risk_context: {
+        source: 'Fortune exclusive + Anthropic spokesperson, March 26–27 2026',
+        key_claims: [
+          '"step change" in AI capability',
+          '"the most capable we\'ve built to date"',
+          '"dramatically higher scores on tests of software coding, academic reasoning, and cybersecurity"',
+          '"Currently far ahead of any other AI model in cyber capabilities"',
+          '"presages an upcoming wave of models that can exploit vulnerabilities in ways that far outpace the efforts of defenders"',
+        ],
+        implication: 'Higher capability => higher blast radius => stricter verification required',
+        claim_risk_issues: leakCheck.issues_found,
+      },
+    } : {}),
+
     checks: results.reduce((acc, r) => {
       acc[r.name] = r;
       return acc;
     }, {}),
+
+    findings_mapped: (context.findings?.critical || []).map(f => ({
+      id: f.id,
+      severity: f.severity,
+      title: f.title,
+      leak_evidence: f.leakEvidence || null,
+      fix: f.fix,
+    })),
+
     summary: allPassed
-      ? 'All verification checks passed. Recipe is safe to deploy.'
-      : 'Some checks failed. Review issues before deploying.',
+      ? 'All verification checks passed. Recipe is appropriately hardened for a Capybara-level model.'
+      : 'Verification gaps found. A model "far ahead of any other AI model in cyber capabilities" requires all checks to pass before deployment.',
   };
 
   return yaml.dump(report, { lineWidth: 120 });

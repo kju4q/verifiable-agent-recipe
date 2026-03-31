@@ -5,12 +5,14 @@ const path = require('path');
 const { glob } = require('glob');
 const simpleGit = require('simple-git');
 const os = require('os');
+const { extractFromHtml } = require('./html-extractor');
 
 // File extensions we care about
 const CODE_EXTS = new Set([
   '.js', '.ts', '.jsx', '.tsx', '.py', '.go', '.rs',
   '.java', '.rb', '.php', '.cs', '.cpp', '.c', '.h',
   '.yaml', '.yml', '.json', '.toml', '.md', '.mdx',
+  '.html', '.htm',  // leak documents, blog posts
   '.sh', '.bash', '.zsh', '.dockerfile', 'Dockerfile',
 ]);
 
@@ -49,13 +51,31 @@ async function analyzeSource(source, { maxFiles = 50, sandbox = false } = {}) {
   // Collect files
   const allFiles = await collectFiles(localPath, maxFiles);
 
-  // Build file summaries
+  // Build file summaries — HTML files get deep extraction
   const fileSummaries = allFiles.map(f => {
     const rel = path.relative(localPath, f);
-    const content = safeRead(f, 4000); // first 4k chars
-    const ext = path.extname(f) || path.basename(f);
-    return { path: rel, ext, preview: content, size: fs.statSync(f).size };
+    const ext = path.extname(f).toLowerCase();
+    const size = fs.statSync(f).size;
+
+    if (ext === '.html' || ext === '.htm') {
+      const html = safeRead(f, 200000); // read full HTML
+      const extraction = extractFromHtml(html, rel);
+      return {
+        path: rel,
+        ext,
+        size,
+        isLeakDoc: true,
+        preview: extraction.plainText.slice(0, 3000),
+        extraction, // full structured extraction attached
+      };
+    }
+
+    const content = safeRead(f, 4000);
+    return { path: rel, ext, preview: content, size };
   });
+
+  // Collect all leak document extractions
+  const leakDocs = fileSummaries.filter(f => f.isLeakDoc && f.extraction);
 
   // Detect stack
   const stack = detectStack(fileSummaries);
@@ -68,9 +88,10 @@ async function analyzeSource(source, { maxFiles = 50, sandbox = false } = {}) {
     localPath,
     isRemote,
     files: fileSummaries,
+    leakDocs,
     stack,
     keyFiles,
-    summary: buildSummary(repoName, fileSummaries, stack, keyFiles),
+    summary: buildSummary(repoName, fileSummaries, stack, keyFiles, leakDocs),
   };
 }
 
@@ -146,15 +167,34 @@ function readKeyFiles(dir) {
   return result;
 }
 
-function buildSummary(name, files, stack, keyFiles) {
-  return [
+function buildSummary(name, files, stack, keyFiles, leakDocs = []) {
+  const lines = [
     `Repository: ${name}`,
     `Files analyzed: ${files.length}`,
     `Languages: ${stack.languages.join(', ') || 'unknown'}`,
     `Frameworks: ${stack.frameworks.join(', ') || 'none detected'}`,
     `Infrastructure: ${stack.infra.join(', ') || 'none detected'}`,
     keyFiles['README.md'] ? `README excerpt: ${keyFiles['README.md'].slice(0, 300)}` : '',
-  ].filter(Boolean).join('\n');
+  ];
+
+  if (leakDocs.length > 0) {
+    lines.push('');
+    lines.push(`LEAK DOCUMENTS DETECTED: ${leakDocs.length} HTML file(s)`);
+    for (const doc of leakDocs) {
+      const ex = doc.extraction;
+      lines.push(`  File: ${doc.path}`);
+      lines.push(`  Title: ${ex.title}`);
+      lines.push(`  Signal phrases found: ${ex.signalMatches.join(', ') || 'none'}`);
+      lines.push(`  Key quotes extracted: ${ex.allNotableQuotes.length}`);
+      lines.push(`  Cyber-risk warnings: ${ex.cyberRiskWarnings.length}`);
+      if (ex.allNotableQuotes.length > 0) {
+        lines.push('  Top quotes:');
+        ex.allNotableQuotes.slice(0, 4).forEach(q => lines.push(`    • "${q.slice(0, 150)}"`));
+      }
+    }
+  }
+
+  return lines.filter(l => l !== undefined).join('\n');
 }
 
 function buildSandboxContext(source) {

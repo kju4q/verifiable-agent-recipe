@@ -36,6 +36,54 @@ async function runAll() {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
+test('html-extractor: parses title and meta from HTML', () => {
+  const { extractFromHtml } = require('../src/html-extractor');
+  const html = `<html><head>
+    <title>Test Leak Doc — AI Model</title>
+    <meta name="description" content="A step change in AI">
+  </head><body>
+    <p>Anthropic confirmed it is a "step change" in capability.</p>
+    <blockquote>Currently far ahead of any other AI model in cyber capabilities.</blockquote>
+    <p>This presages an upcoming wave of models that can exploit vulnerabilities faster.</p>
+  </body></html>`;
+  const result = extractFromHtml(html, 'test.html');
+  assert(result.title === 'Test Leak Doc — AI Model', `bad title: ${result.title}`);
+  assert(result.metaDescription.includes('step change'), 'meta description missing signal');
+  assert(result.blockquotes.length > 0, 'must extract blockquotes');
+  assert(result.blockquotes[0].toLowerCase().includes('cyber'), 'blockquote content wrong');
+  assert(result.signalMatches.includes('step change'), 'must match step change signal');
+  assert(result.signalMatches.includes('far ahead'), 'must match far ahead signal');
+});
+
+test('html-extractor: extracts cyber-risk warnings', () => {
+  const { extractFromHtml } = require('../src/html-extractor');
+  const html = `<html><body>
+    <p>This model is currently far ahead of any other AI model in cyber capabilities.</p>
+    <p>It can exploit vulnerabilities faster than defenders can patch them.</p>
+    <p>It presages an upcoming wave that will outpace defender efforts.</p>
+  </body></html>`;
+  const result = extractFromHtml(html, 'risk.html');
+  assert(result.cyberRiskWarnings.length >= 1, `expected ≥1 risk warning, got ${result.cyberRiskWarnings.length}`);
+});
+
+test('html-extractor: extracts JSON-LD FAQ entries', () => {
+  const { extractFromHtml } = require('../src/html-extractor');
+  const faqJson = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: [{
+      '@type': 'Question',
+      name: 'What is Capybara?',
+      acceptedAnswer: { '@type': 'Answer', text: 'A step change in AI capability.' },
+    }],
+  });
+  const html = `<html><head><script type="application/ld+json">${faqJson}</script></head><body></body></html>`;
+  const result = extractFromHtml(html, 'faq.html');
+  assert(result.faqEntries.length === 1, 'must parse FAQ');
+  assert(result.faqEntries[0].question === 'What is Capybara?', 'wrong question');
+  assert(result.faqEntries[0].answer.includes('step change'), 'wrong answer');
+});
+
 test('demo/mythos.js exports valid context', () => {
   const demo = require('../demo/mythos');
   assert(demo.repoName, 'repoName required');
@@ -43,6 +91,11 @@ test('demo/mythos.js exports valid context', () => {
   assert(demo.stack, 'stack required');
   assert(demo.summary, 'summary required');
   assert(demo.findings?.critical?.length > 0, 'must have critical findings');
+  assert(demo.highlightQuotes, 'must have highlightQuotes');
+  assert(demo.highlightQuotes.stepChange, 'must have stepChange quote');
+  assert(demo.highlightQuotes.cyberLead, 'must have cyberLead quote');
+  assert(demo.notableQuotes?.length > 0, 'must have notableQuotes array');
+  assert(demo.cyberRiskWarnings?.length > 0, 'must have cyberRiskWarnings');
 });
 
 test('generator produces valid YAML in sandbox mode', async () => {
@@ -57,7 +110,7 @@ test('generator produces valid YAML in sandbox mode', async () => {
   assert(parsed.safety?.sandbox_mode === true, 'sandbox_mode must be true');
 });
 
-test('verifier runs all checks and returns report', async () => {
+test('verifier runs all checks including leak-claim analysis', async () => {
   const { generateRecipe } = require('../src/generator');
   const { runVerification } = require('../src/verifier');
   const demo = require('../demo/mythos');
@@ -66,7 +119,13 @@ test('verifier runs all checks and returns report', async () => {
   assert(typeof result.passed === 'boolean', 'must have passed field');
   assert(Array.isArray(result.results), 'must have results array');
   assert(typeof result.report === 'string', 'must have YAML report string');
-  assert(result.results.length >= 3, 'must run at least 3 checks');
+  assert(result.results.length >= 4, 'must run at least 4 checks (incl. leak-claim)');
+  const leakCheck = result.results.find(r => r.name === 'leak_claim_risk_analysis');
+  assert(leakCheck, 'must include leak_claim_risk_analysis check');
+  assert(Array.isArray(leakCheck.claims_checked), 'must list claims checked');
+  assert(leakCheck.claims_checked.length >= 5, 'must check all 5 key Capybara claims');
+  // Verify the report YAML includes Mythos risk context
+  assert(result.report.includes('mythos_capybara_risk_context'), 'report must include mythos risk context');
 });
 
 test('notebook generator produces markdown with all sections', async () => {
@@ -77,10 +136,21 @@ test('notebook generator produces markdown with all sections', async () => {
   const recipe = await generateRecipe(demo, { sandbox: true });
   const verification = await runVerification(demo, recipe, { sandbox: true });
   const nb = await generateNotebook(demo, recipe, verification);
+  // Core sections always present
   assert(nb.includes('## 1. Repository Analysis'), 'missing section 1');
-  assert(nb.includes('## 2. Multi-Agent Recipe Overview'), 'missing section 2');
-  assert(nb.includes('## 5. Verification Report'), 'missing section 5');
-  assert(nb.includes('## 7. Run It Yourself'), 'missing section 7');
+  // Leak demo sections (numbers shift when isDemo=true)
+  assert(nb.includes('## 2. Leak Document Analysis'), 'missing leak section 2');
+  assert(nb.includes('## 3. Key Quotes from the Leak'), 'missing quotes section 3');
+  assert(nb.includes('## 4. Capability Claims'), 'missing capability section 4');
+  assert(nb.includes('## 5. Cyber-Risk Warnings'), 'missing cyber-risk section 5');
+  // Recipe / workflow (renumbered)
+  assert(nb.includes('Multi-Agent Recipe Overview'), 'missing recipe section');
+  assert(nb.includes('Verification Report'), 'missing verification section');
+  assert(nb.includes('Run It Yourself'), 'missing run-it-yourself section');
+  // Key quotes must appear
+  assert(nb.includes('step change'), 'missing step change quote');
+  assert(nb.includes('far ahead'), 'missing far-ahead quote');
+  assert(nb.includes('dramatically higher'), 'missing dramatically-higher quote');
 });
 
 test('collab card generator produces markdown with trust boundaries', async () => {

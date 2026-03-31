@@ -7,25 +7,23 @@ async function generateNotebook(context, recipeYaml, verification) {
   const meta = recipe.metadata || {};
   const agents = recipe.agents || [];
   const now = new Date().toISOString();
+  const isLeakDemo = !!(context.isDemo || (context.leakDocs && context.leakDocs.length > 0));
 
   return `# Verifiable Agent Notebook: ${meta.name || context.repoName}
 
 > **Generated:** ${now}
 > **Model:** ${meta.model || 'claude-sonnet-4-6'}
 > **Verification:** ${verification.passed ? '✅ PASSED' : '❌ FAILED'}
-> **Sandbox mode:** ${recipe.safety?.sandbox_mode ? 'ON' : 'OFF'}
+> **Sandbox mode:** ${recipe.safety?.sandbox_mode ? 'ON ✅' : 'OFF ⚠️'}
+${context.sourceNote ? `> **Source:** ${context.sourceNote}` : ''}
 
 ---
 
 ## Table of Contents
 
 1. [Repository Analysis](#1-repository-analysis)
-2. [Multi-Agent Recipe Overview](#2-multi-agent-recipe-overview)
-3. [Agent Roster](#3-agent-roster)
-4. [Workflow Trace](#4-workflow-trace)
-5. [Verification Report](#5-verification-report)
-6. [Computer Use Session](#6-computer-use-session)
-7. [Run It Yourself](#7-run-it-yourself)
+${isLeakDemo ? '2. [Leak Document Analysis](#2-leak-document-analysis)\n3. [Key Quotes from the Leak](#3-key-quotes-from-the-leak)\n4. [Capability Claims](#4-capability-claims)\n5. [Cyber-Risk Warnings](#5-cyber-risk-warnings)\n6. [Multi-Agent Recipe Overview](#6-multi-agent-recipe-overview)\n7. [Agent Roster](#7-agent-roster)\n8. [Workflow Trace](#8-workflow-trace)\n9. [Verification Report](#9-verification-report)\n10. [Run It Yourself](#10-run-it-yourself)' :
+'2. [Multi-Agent Recipe Overview](#2-multi-agent-recipe-overview)\n3. [Agent Roster](#3-agent-roster)\n4. [Workflow Trace](#4-workflow-trace)\n5. [Verification Report](#5-verification-report)\n6. [Run It Yourself](#6-run-it-yourself)'}
 
 ---
 
@@ -33,6 +31,9 @@ async function generateNotebook(context, recipeYaml, verification) {
 
 **Repository:** \`${context.repoName}\`
 **Files analyzed:** ${context.files?.length || 0}
+${context.documentTitle ? `**Document:** ${context.documentTitle}` : ''}
+${context.documentDate ? `**Date:** ${context.documentDate}` : ''}
+${context.documentSource ? `**Source:** ${context.documentSource}` : ''}
 
 ### Stack Detected
 ${formatStack(context.stack)}
@@ -43,8 +44,9 @@ ${context.summary || 'No summary available'}
 \`\`\`
 
 ---
+${isLeakDemo ? renderLeakSections(context) : ''}
 
-## 2. Multi-Agent Recipe Overview
+## ${isLeakDemo ? '6' : '2'}. Multi-Agent Recipe Overview
 
 \`\`\`yaml
 ${recipeYaml}
@@ -52,13 +54,13 @@ ${recipeYaml}
 
 ---
 
-## 3. Agent Roster
+## ${isLeakDemo ? '7' : '3'}. Agent Roster
 
 ${agents.map(agent => formatAgent(agent)).join('\n\n')}
 
 ---
 
-## 4. Workflow Trace
+## ${isLeakDemo ? '8' : '4'}. Workflow Trace
 
 | Step | Agent | Action | Requires Approval |
 |------|-------|--------|-------------------|
@@ -68,13 +70,13 @@ ${(recipe.workflow || []).map(s =>
 
 ---
 
-## 5. Verification Report
+## ${isLeakDemo ? '9' : '5'}. Verification Report
 
 **Overall:** ${verification.passed ? '✅ PASSED' : '❌ FAILED'}
 
 ${verification.results.map(r => formatCheckResult(r)).join('\n\n')}
 
-### Raw Report
+### Raw Verification Report
 
 \`\`\`yaml
 ${verification.report}
@@ -82,30 +84,7 @@ ${verification.report}
 
 ---
 
-## 6. Computer Use Session
-
-The \`computer_use_agent\` can perform browser/UI tasks with full screenshot provenance.
-
-### Example: Run a UI verification task
-
-\`\`\`bash
-# Start a Computer Use session (sandbox mode)
-ANTHROPIC_API_KEY=your_key npx create-verifiable-agent \\
-  https://github.com/your/repo \\
-  --sandbox
-\`\`\`
-
-### Provenance chain
-Every screenshot, click, and keystroke is logged with:
-- Timestamp
-- Agent ID
-- Input hash
-- Output hash
-- Human review gate status
-
----
-
-## 7. Run It Yourself
+## ${isLeakDemo ? '10' : '6'}. Run It Yourself
 
 ### Prerequisites
 \`\`\`bash
@@ -114,19 +93,23 @@ npm >= 9
 export ANTHROPIC_API_KEY=sk-ant-...
 \`\`\`
 
-### Install & run
+### Commands
 \`\`\`bash
+# Mythos demo (no API key needed in sandbox mode)
+npx create-verifiable-agent --demo mythos --sandbox
+
+# Point at the real HTML file
+CAPYBARA_HTML=~/Downloads/mythos-leak-draft/capybara-v6.html \\
+  npx create-verifiable-agent --demo mythos --sandbox
+
 # Run on any GitHub repo
 npx create-verifiable-agent https://github.com/org/repo
 
-# Run the Mythos demo (no API key needed with --sandbox)
-npx create-verifiable-agent --demo mythos --sandbox
+# Pro plan — plan mode (default), shows plan before executing
+npx create-verifiable-agent https://github.com/org/repo
 
-# Auto-accept all edits (Pro plan plan mode)
+# Auto-accept (skip confirmation)
 npx create-verifiable-agent https://github.com/org/repo --accept-edits
-
-# Full options
-npx create-verifiable-agent --help
 \`\`\`
 
 ### Output files
@@ -143,6 +126,115 @@ npx create-verifiable-agent --help
 `;
 }
 
+// ── Leak-specific sections ────────────────────────────────────────────────────
+
+function renderLeakSections(context) {
+  const hq = context.highlightQuotes || {};
+  const quotes = context.notableQuotes || [];
+  const caps = context.capabilities || {};
+  const cw = context.cyberRiskWarnings || [];
+  const findings = context.findings?.critical || [];
+  const timeline = context.timeline || [];
+
+  return `
+## 2. Leak Document Analysis
+
+${context.htmlPath
+    ? `**Source file:** \`${context.htmlPath}\`\n**Parsed with:** html-extractor (regex + JSON-LD)`
+    : '_capybara-v6.html not found locally — using embedded public quotes._\n_Set `CAPYBARA_HTML=/path/to/capybara-v6.html` to enable live parsing._'}
+
+### What was leaked
+
+On **March 26, 2026**, a CMS misconfiguration at Anthropic left approximately **3,000 unpublished assets** — including draft blog posts about *Claude Mythos* and the *Capybara* tier — in a publicly accessible, searchable data store. *Fortune* discovered and reported on it. Anthropic confirmed the model exists and attributed the leak to "human error."
+
+### Model hierarchy revealed
+
+| Tier | Name | Status |
+|------|------|--------|
+| 1 | Haiku | Public |
+| 2 | Sonnet | Public |
+| 3 | Opus | Public |
+| 4 (**NEW**) | **Capybara** (codename: Mythos) | Early access |
+
+### Leak provenance
+- **Discovered:** March 26, 2026 — Fortune exclusive
+- **Confirmed:** March 27, 2026 — Anthropic spokesperson statement
+- **Cause:** CMS misconfiguration, "human error"
+- **Scale:** ~3,000 unpublished assets exposed
+- **Independent verification:** Cambridge researchers + LayerX security team
+
+---
+
+## 3. Key Quotes from the Leak
+
+> ${hq.stepChange || '"a \'step change\' in AI capability" — Anthropic spokesperson, March 27 2026'}
+
+> ${hq.mostCapable || '"the most capable we\'ve built to date" — Anthropic draft blog post (leaked)'}
+
+> ${hq.dramaticallyHigher || '"Compared to our previous best model, Claude Opus 4.6, Capybara gets dramatically higher scores on tests of software coding, academic reasoning, and cybersecurity, among others." — Anthropic draft blog post, leaked March 26 2026 · Source: Fortune'}
+
+> ${hq.cyberLead || '"Currently far ahead of any other AI model in cyber capabilities" — Anthropic internal assessment'}
+
+> ${hq.presages || '"presages an upcoming wave of models that can exploit vulnerabilities in ways that far outpace the efforts of defenders"'}
+
+> ${hq.leakCause || '"A CMS misconfiguration at Anthropic left approximately 3,000 unpublished assets — including draft blog posts about Mythos/Capybara — in a publicly accessible data store."'}
+
+${quotes.length > 6 ? `\n### Additional extracted quotes\n\n${quotes.slice(6, 12).map(q => `> ${q}`).join('\n\n')}` : ''}
+
+---
+
+## 4. Capability Claims
+
+### Software Coding
+${formatCapability(caps.coding)}
+
+### Academic Reasoning
+${formatCapability(caps.reasoning)}
+
+### Cybersecurity
+${formatCapability(caps.cybersecurity)}
+
+### Overall
+${formatCapability(caps.overall)}
+
+### Benchmarks (from public reporting)
+
+| Benchmark | Opus 4.6 | Capybara |
+|-----------|----------|----------|
+| Terminal-Bench 2.0 (Agentic Coding) | 65.4% | "dramatically higher" (unreleased) |
+| Humanity's Last Exam (Reasoning) | 53.1% | "dramatically higher" (unreleased) |
+| Cybersecurity | — | "far ahead of any other AI model" |
+| Finance Agent (Enterprise Tasks) | 60.7% | "dramatically higher" (unreleased) |
+
+---
+
+## 5. Cyber-Risk Warnings
+
+These warnings from the leak document are what make the security findings below **critical**, not merely medium-severity.
+
+${cw.length > 0
+    ? cw.map(w => `> ⚠️ ${w}`).join('\n\n')
+    : `> ⚠️ "Currently far ahead of any other AI model in cyber capabilities"
+> ⚠️ "can exploit vulnerabilities faster than defenders can patch them"
+> ⚠️ "presages an upcoming wave of models that can exploit vulnerabilities in ways that far outpace the efforts of defenders"`}
+
+### What this means for the findings
+
+${findings.map(f => `**${f.id} — ${f.title}** (${f.severity})
+${f.leakEvidence ? `> Leak context: ${f.leakEvidence}` : ''}
+Fix: ${f.fix}`).join('\n\n')}
+
+### Timeline
+
+${timeline.map(t => `- ${t}`).join('\n')}
+
+---
+
+`;
+}
+
+// ── Formatters ────────────────────────────────────────────────────────────────
+
 function formatStack(stack) {
   if (!stack) return '_No stack detected_';
   const lines = [];
@@ -150,6 +242,12 @@ function formatStack(stack) {
   if (stack.frameworks?.length) lines.push(`- **Frameworks:** ${stack.frameworks.join(', ')}`);
   if (stack.infra?.length) lines.push(`- **Infrastructure:** ${stack.infra.join(', ')}`);
   return lines.length ? lines.join('\n') : '_Stack details unavailable_';
+}
+
+function formatCapability(items) {
+  if (!items || !items.length) return '_No data extracted_';
+  if (typeof items === 'string') return `- ${items}`;
+  return items.map(i => `- ${i}`).join('\n');
 }
 
 function formatAgent(agent) {
