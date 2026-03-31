@@ -11,6 +11,7 @@ const { generateNotebook } = require('./notebook');
 const { generateCollabCard } = require('./collab-card');
 const { loadDemo } = require('./demo-loader');
 const { planMode } = require('./plan');
+const { enrichContext } = require('./leak-enricher');
 
 async function run(opts) {
   const {
@@ -53,6 +54,10 @@ async function run(opts) {
     context = await analyzeSource(source, { maxFiles, sandbox });
     spinner.succeed(`Analyzed ${context.files.length} files from ${context.repoName}`);
   }
+
+  // Promote leakDoc extraction fields to context root so all generators
+  // (notebook, verifier, collab-card) work identically for --demo and real URLs
+  enrichContext(context);
 
   // ── Step 2: Plan mode (show before executing) ────────────────────────────────
   if (usePlanMode && !acceptEdits) {
