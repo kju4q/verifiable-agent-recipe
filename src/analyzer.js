@@ -29,10 +29,7 @@ async function analyzeSource(source, { maxFiles = 50, sandbox = false } = {}) {
 
   // Determine if it's a GitHub URL or local path
   if (source.startsWith('https://github.com') || source.startsWith('git@github.com')) {
-    if (sandbox) {
-      // In sandbox mode, fake the clone
-      return buildSandboxContext(source);
-    }
+    // Sandbox only blocks mutations and Claude API calls — cloning is read-only and always runs
     isRemote = true;
     localPath = path.join(os.tmpdir(), `cva-${Date.now()}`);
     repoName = source.split('/').pop().replace('.git', '');
