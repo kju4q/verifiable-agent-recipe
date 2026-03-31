@@ -1,6 +1,6 @@
 {
   "name": "create-verifiable-agent",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "One-command CLI to turn any codebase into a verifiable multi-agent recipe using Claude Sonnet 4.6 + Computer Use API",
   "bin": {
     "create-verifiable-agent": "./bin/create-verifiable-agent.js"
